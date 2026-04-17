@@ -25,7 +25,7 @@ use crate::simulations::{
     Simulation, rigidbody::RigidBodySim, rotate::RotateSim, sph::SmoothedParticleHydrodynamicsSim,
 };
 
-const CANVAS_SIZE: [u32; 2] = [1024, 1024];
+const CANVAS_SIZE: [u32; 2] = [512, 512];
 const CANVAS_FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[repr(C)]
@@ -99,7 +99,7 @@ impl Instance {
     }
 }
 
-const FRAMES_IN_FLIGHT: usize = 3;
+const FRAMES_IN_FLIGHT: usize = 2;
 
 #[allow(unused)]
 pub struct State {
@@ -136,15 +136,19 @@ impl State {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
         let size = window.inner_size();
 
+        println!("size: {} x {}", size.width, size.height);
+
         // TODO
         // may need correct backend for web
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        // instance_desc.backends = wgpu::Backends::VULKAN;
+        let instance = wgpu::Instance::new(instance_desc);
 
         let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::None,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
@@ -159,9 +163,9 @@ impl State {
                 required_limits: if cfg!(target_arch = "wasm32") {
                     wgpu::Limits::downlevel_webgl2_defaults()
                 } else {
-                    wgpu::Limits::default()
+                    wgpu::Limits::downlevel_defaults()
                 },
-                memory_hints: Default::default(),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
                 trace: wgpu::Trace::Off,
             })
             .await?;
@@ -412,15 +416,15 @@ impl State {
 
         #[allow(non_snake_case)]
         let simUBO = gpusims::sph::UBO {
-            nparticles: 4096,
-            smooth_radius: 0.5,
+            nparticles: 1024,
+            smooth_radius: 1.0,
             block_size: 0,
             flip: 0,
             gas_constant: 100.0,
             target_density: 3.6,
             canvas_width: CANVAS_SIZE[0] as f32,
             canvas_height: CANVAS_SIZE[1] as f32,
-            dt: 0.01,
+            dt: 0.005,
         };
         let gpusim = Box::new(GPUSmoothedParticleHydrodynamicsSim::new(
             &device, 100.0, 10.0, simUBO,

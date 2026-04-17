@@ -11,6 +11,8 @@ struct UBO {
 };
 @group(0) @binding(0) var<uniform> ubo: UBO;
 
+const boxR: f32 = 10.0;
+
 struct particle {
     pos: vec2<f32>,
     vel: vec2<f32>,
@@ -119,16 +121,31 @@ fn sample_density(v: vec2<f32>) -> f32 {
         for (var j: u32 = 0; j < range.y; j += 1) {
             let particle = particles[particle_hash[j].y];
             density += particle.mass * W_poly6(length(particle.pos - v), ubo.smooth_radius);
-            continue;
+            //continue;
 
-            var ghost = particle;
-            ghost.pos.x = -20 - particle.pos.x;
-            density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
-            ghost.pos.x = 20 - particle.pos.x;
-            density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
-            ghost.pos.x = particle.pos.x;
-            ghost.pos.y = -20 - particle.pos.y;
-            density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
+            if particle.pos.x < ubo.smooth_radius - boxR {
+                var ghost = particle;
+                ghost.pos.x = -20 - particle.pos.x;
+                density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
+
+                if particle.pos.y < ubo.smooth_radius - boxR {
+                    ghost.pos.y = -20 - particle.pos.y;
+                    density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
+                }
+            } else if particle.pos.x > boxR - ubo.smooth_radius {
+                var ghost = particle;
+                ghost.pos.x = 20 - particle.pos.x;
+                density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
+
+                if particle.pos.y < ubo.smooth_radius - boxR {
+                    ghost.pos.y = -20 - particle.pos.y;
+                    density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
+                }
+            } else if particle.pos.y < ubo.smooth_radius - boxR {
+                var ghost = particle;
+                ghost.pos.y = -20 - particle.pos.y;
+                density += ghost.mass * W_poly6(length(ghost.pos - v), ubo.smooth_radius);
+            }
         }
     }
 
@@ -158,7 +175,7 @@ fn sample_pressure_force(v: vec2<f32>, pdensity: f32, ppressure: f32) -> vec2<f3
         for (var j: u32 = 0; j < range.y; j += 1) {
             let particle = particles[particle_hash[j].y];
             pressure_force += W_spiky_grad(particle.pos - v, ubo.smooth_radius) * (particle.pressure / pow(particle.density, 2) + ppressure / pow(pdensity, 2)) * 0.5 * particle.mass;
-            continue;
+            //continue;
 
             var ghost = particle;
             ghost.pos.x = -20 - particle.pos.x;
@@ -390,15 +407,15 @@ fn move_and_collide(
     if gid.x >= ubo.NPARTICLES {
         return;
     }
-    // particles[gid.x].pos -= particles[gid.x].vel * ubo.dt;
-    // particles[gid.x].vel += particles[gid.x].acc * ubo.dt;
-    // particles[gid.x].pos += particles[gid.x].vel * ubo.dt;
+    particles[gid.x].pos -= particles[gid.x].vel * ubo.dt;
+    particles[gid.x].vel += particles[gid.x].acc * ubo.dt;
+    particles[gid.x].pos += particles[gid.x].vel * ubo.dt;
 
     var pos = particles[gid.x].pos;
     var vel = particles[gid.x].vel;
 
-    const damping: f32 = 0.2;
-    const r: f32 = 10.0;
+    const damping: f32 = 0.0;
+    const r: f32 = 9.9;
     if pos.x < -r {
         pos.x = -r;
         if vel.x < 0.0 {
