@@ -146,9 +146,9 @@ fn set_acceleration(
 
     var F_net = vec2<f32>(0.0, -8.0);
     F_net += F_pressure;
-    F_net += 0.3 * F_viscosity;
+    F_net += 0.4 * F_viscosity;
     F_net += 2.0 * F_cohestion;
-    F_net += 0.3 * F_curvature;
+    F_net += 1.3 * F_curvature;
 
     acc[gid] = F_net / density1;
 }

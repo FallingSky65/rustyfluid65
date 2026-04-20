@@ -12,6 +12,7 @@ pub trait GPUSimulation {
         encoder: &mut wgpu::CommandEncoder,
         profiler: &wgpu_profiler::GpuProfiler,
     );
+    #[allow(unused)]
     fn as_any(&self) -> &dyn Any;
 }
 
