@@ -25,8 +25,23 @@ use crate::simulations::{
     Simulation, rigidbody::RigidBodySim, rotate::RotateSim, sph::SmoothedParticleHydrodynamicsSim,
 };
 
-const CANVAS_SIZE: [u32; 2] = [512, 512];
+const CANVAS_SIZE: [u32; 2] = [1024, 1024];
 const CANVAS_FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+const N: u32 = 4096;
+const TOTAL_MASS: f32 = 100.0;
+const WORKGROUP_SIZE: u32 = 256;
+const SIM_UBO: gpusims::sph::UBO = gpusims::sph::UBO {
+    nparticles: N,
+    smooth_radius: 0.50,
+    //block_size: 0,
+    //flip: 0,
+    gas_constant: 10.0,
+    target_density: 1.0,
+    canvas_width: CANVAS_SIZE[0] as f32,
+    canvas_height: CANVAS_SIZE[1] as f32,
+    dt: 5e-3,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -140,7 +155,7 @@ impl State {
 
         // TODO
         // may need correct backend for web
-        let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        let instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
         // instance_desc.backends = wgpu::Backends::VULKAN;
         let instance = wgpu::Instance::new(instance_desc);
 
@@ -154,18 +169,21 @@ impl State {
             })
             .await?;
 
+        let mut required_limits = if cfg!(target_arch = "wasm32") {
+            wgpu::Limits::downlevel_webgl2_defaults()
+        } else {
+            wgpu::Limits::downlevel_defaults()
+        };
+        required_limits.max_storage_buffers_per_shader_stage = 8;
+        required_limits.max_texture_dimension_2d = 3840;
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::TIMESTAMP_QUERY
                     | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                required_limits: if cfg!(target_arch = "wasm32") {
-                    wgpu::Limits::downlevel_webgl2_defaults()
-                } else {
-                    wgpu::Limits::downlevel_defaults()
-                },
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                required_limits,                memory_hints: wgpu::MemoryHints::MemoryUsage,
                 trace: wgpu::Trace::Off,
             })
             .await?;
@@ -415,19 +433,8 @@ impl State {
         // });
 
         #[allow(non_snake_case)]
-        let simUBO = gpusims::sph::UBO {
-            nparticles: 1024,
-            smooth_radius: 1.0,
-            block_size: 0,
-            flip: 0,
-            gas_constant: 100.0,
-            target_density: 3.6,
-            canvas_width: CANVAS_SIZE[0] as f32,
-            canvas_height: CANVAS_SIZE[1] as f32,
-            dt: 0.005,
-        };
         let gpusim = Box::new(GPUSmoothedParticleHydrodynamicsSim::new(
-            &device, 100.0, 10.0, simUBO,
+            &device, TOTAL_MASS, 10.0, SIM_UBO,
         ));
 
         Ok(Self {
@@ -632,10 +639,18 @@ impl State {
             .profiler
             .process_finished_frame(self.queue.get_timestamp_period());
 
-        print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+        //print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
         let gpu_time = self.print_results(1);
 
         self.frame_index += 1;
+
+        /*
+        if let Some(sim) = self.gpusim.as_any().downcast_ref::<GPUSmoothedParticleHydrodynamicsSim>() {
+            sim.radix_sort.readback(&self.device, &self.queue, &sim.hashes1, &sim.hashes2);
+            panic!();
+        }
+        */
+
 
         // self.queue.write_buffer(
         // &self.instance_buffer,

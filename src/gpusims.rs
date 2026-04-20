@@ -1,3 +1,5 @@
+use std::any::Any;
+
 pub mod rotate;
 pub mod sph;
 
@@ -10,6 +12,7 @@ pub trait GPUSimulation {
         encoder: &mut wgpu::CommandEncoder,
         profiler: &wgpu_profiler::GpuProfiler,
     );
+    fn as_any(&self) -> &dyn Any;
 }
 
 impl GPUSimulation for rotate::GPURotateSim {
@@ -29,6 +32,10 @@ impl GPUSimulation for rotate::GPURotateSim {
     ) {
         // self.update(device, queue);
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl GPUSimulation for sph::GPUSmoothedParticleHydrodynamicsSim {
@@ -47,5 +54,9 @@ impl GPUSimulation for sph::GPUSmoothedParticleHydrodynamicsSim {
         profiler: &wgpu_profiler::GpuProfiler,
     ) {
         self.update(queue, encoder, profiler);
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
