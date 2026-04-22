@@ -6,6 +6,9 @@ struct UBO {
     canvas_width: f32,
     canvas_height: f32,
     dt: f32,
+    mouse_x: f32,
+    mouse_y: f32,
+    mouse_state: u32,
 };
 @group(0) @binding(0) var<uniform> ubo: UBO;
 @group(0) @binding(1) var<storage, read> hashes: array<vec2<u32>>;

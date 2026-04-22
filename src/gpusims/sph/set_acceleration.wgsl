@@ -6,6 +6,9 @@ struct UBO {
     canvas_width: f32,
     canvas_height: f32,
     dt: f32,
+    mouse_x: f32,
+    mouse_y: f32,
+    mouse_state: u32,
 };
 @group(0) @binding(0) var<uniform> ubo: UBO;
 @group(0) @binding(1) var<storage, read> hashes: array<vec2<u32>>;
@@ -149,6 +152,13 @@ fn set_acceleration(
     F_net += 0.4 * F_viscosity;
     F_net += 2.0 * F_cohestion;
     F_net += 1.3 * F_curvature;
-
+    
     acc[gid] = F_net / density1;
+
+    let mouse_pos = vec2<f32>(ubo.mouse_x, ubo.mouse_y);
+    acc[gid] += select(
+        vec2<f32>(0.0),
+        500.0 * normalize(pos1 - mouse_pos) * select(1.0, -1.0, ubo.mouse_state == 1),
+        length(pos1 - mouse_pos) < 1.5 && (ubo.mouse_state == 1 || ubo.mouse_state == 2)
+    );
 }

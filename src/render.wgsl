@@ -21,7 +21,7 @@ struct vs_out {
     @location(2) color: vec3<f32>,
 };
 
-const RADIUS: f32 = 04.0;
+const RADIUS: f32 = 07.0;
 
 @vertex
 fn vs_main(

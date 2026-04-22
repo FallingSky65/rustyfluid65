@@ -12,6 +12,10 @@ pub struct UBO {
     pub canvas_height: f32,
 
     pub dt: f32,
+
+    pub mouse_x: f32,
+    pub mouse_y: f32,
+    pub mouse_state: u32,
 }
 
 #[repr(C)]
@@ -488,6 +492,8 @@ pub struct GPUSmoothedParticleHydrodynamicsSim {
 
     pub n: usize,
     ubo: UBO,
+
+    control_info: crate::ControlInfo,
 }
 
 #[allow(unused)]
@@ -659,15 +665,24 @@ impl GPUSmoothedParticleHydrodynamicsSim {
 
         let radix_sort = RadixSort::new(device, &hashes1, &hashes2, n as u32);
         
-        Self { pbuffers, hashes1, hashes2, cell_range, instance_buffer, uniform_buffer, calc_hash, find_range, set_density, set_normal, set_acceleration, move_and_collide, radix_sort, n, ubo }
+        Self { pbuffers, hashes1, hashes2, cell_range, instance_buffer, uniform_buffer, calc_hash, find_range, set_density, set_normal, set_acceleration, move_and_collide, radix_sort, n, ubo, control_info: Default::default() }
     }
 
     pub fn update(
-        &self,
+        &mut self,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         profiler: &wgpu_profiler::GpuProfiler,
+        control_info: &crate::ControlInfo,
     ) {
+        if (control_info.clone() != self.control_info) {
+            self.control_info = control_info.clone();
+            self.ubo.mouse_x = self.control_info.cursor_pos[0];
+            self.ubo.mouse_y = self.control_info.cursor_pos[1];
+            self.ubo.mouse_state = (self.control_info.cursor_left_down as u32) + 2 * (self.control_info.cursor_right_down as u32);
+            queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.ubo]));
+        }
+
         let mut scope = profiler.scope("SPH Compute", encoder);
 
         //queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.ubo]));

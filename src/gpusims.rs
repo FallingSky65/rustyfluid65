@@ -11,6 +11,7 @@ pub trait GPUSimulation {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         profiler: &wgpu_profiler::GpuProfiler,
+        control_info: &crate::ControlInfo,
     );
     #[allow(unused)]
     fn as_any(&self) -> &dyn Any;
@@ -30,6 +31,7 @@ impl GPUSimulation for rotate::GPURotateSim {
         _queue: &wgpu::Queue,
         _encoder: &mut wgpu::CommandEncoder,
         _profiler: &wgpu_profiler::GpuProfiler,
+        _control_info: &crate::ControlInfo,
     ) {
         // self.update(device, queue);
     }
@@ -53,8 +55,9 @@ impl GPUSimulation for sph::GPUSmoothedParticleHydrodynamicsSim {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         profiler: &wgpu_profiler::GpuProfiler,
+        control_info: &crate::ControlInfo,
     ) {
-        self.update(queue, encoder, profiler);
+        self.update(queue, encoder, profiler, control_info);
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 use wgpu_profiler::GpuProfilerSettings;
 use winit::{
     application::ApplicationHandler,
-    event::{KeyEvent, WindowEvent},
+    event::{KeyEvent, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
@@ -31,16 +31,20 @@ const CANVAS_FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const N: u32 = 4096;
 const TOTAL_MASS: f32 = 100.0;
 const WORKGROUP_SIZE: u32 = 256;
+const BOX_RADIUS: f32 = 10.0;
 const SIM_UBO: gpusims::sph::UBO = gpusims::sph::UBO {
     nparticles: N,
     smooth_radius: 0.50,
     //block_size: 0,
     //flip: 0,
     gas_constant: 20.0,
-    target_density: 0.5,
+    target_density: 0.7,
     canvas_width: CANVAS_SIZE[0] as f32,
     canvas_height: CANVAS_SIZE[1] as f32,
     dt: 5e-3,
+    mouse_x: 0.0,
+    mouse_y: 0.0,
+    mouse_state: 0,
 };
 
 #[repr(C)]
@@ -116,6 +120,13 @@ impl Instance {
 
 const FRAMES_IN_FLIGHT: usize = 2;
 
+#[derive(Clone, Copy, PartialEq, Default)]
+pub struct ControlInfo {
+    cursor_pos: [f32; 2],
+    cursor_left_down: bool,
+    cursor_right_down: bool,
+}
+
 #[allow(unused)]
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -145,6 +156,8 @@ pub struct State {
 
     // sim: Box<dyn Simulation>,
     gpusim: Box<dyn GPUSimulation>,
+
+    control_info: ControlInfo,
 }
 
 impl State {
@@ -434,7 +447,7 @@ impl State {
 
         #[allow(non_snake_case)]
         let gpusim = Box::new(GPUSmoothedParticleHydrodynamicsSim::new(
-            &device, TOTAL_MASS, 10.0, SIM_UBO,
+            &device, TOTAL_MASS, BOX_RADIUS, SIM_UBO,
         ));
 
         Ok(Self {
@@ -465,6 +478,12 @@ impl State {
 
             // sim,
             gpusim,
+
+            control_info: ControlInfo {
+                cursor_pos: [0.0, 0.0],
+                cursor_left_down: false,
+                cursor_right_down: false
+            }
         })
     }
 
@@ -623,7 +642,7 @@ impl State {
         profiling::scope!("Simulation Update");
         let mut encoder = self.device.create_command_encoder(&Default::default());
         self.gpusim
-            .sim_update(&self.queue, &mut encoder, &self.profiler);
+            .sim_update(&self.queue, &mut encoder, &self.profiler, &self.control_info);
         self.profiler.resolve_queries(&mut encoder);
 
         {
@@ -906,6 +925,19 @@ impl ApplicationHandler<State> for App {
                     },
                 ..
             } => state.handle_key(event_loop, code, key_state.is_pressed()),
+            WindowEvent::CursorMoved { device_id: _, position } => {
+                let window_size = state.window.inner_size();
+                let min_dim = window_size.width.min(window_size.height) as f32;
+                let x = (position.x as f32 - window_size.width as f32 * 0.5)*2.0*BOX_RADIUS/min_dim;
+                let y = (window_size.height as f32 * 0.5 - position.y as f32)*2.0*BOX_RADIUS/min_dim;
+                state.control_info.cursor_pos = [x, y];
+                //println!("cursor @ ({}, {})", x, y);
+            }
+            WindowEvent::MouseInput { device_id: _, state: input_state, button } => match button {
+                MouseButton::Left => state.control_info.cursor_left_down = input_state.is_pressed(),
+                MouseButton::Right => state.control_info.cursor_right_down = input_state.is_pressed(),
+                _ => {}
+            }
             _ => {}
         }
     }

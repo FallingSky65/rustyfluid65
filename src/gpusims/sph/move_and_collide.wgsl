@@ -6,6 +6,9 @@ struct UBO {
     canvas_width: f32,
     canvas_height: f32,
     dt: f32,
+    mouse_x: f32,
+    mouse_y: f32,
+    mouse_state: u32,
 };
 @group(0) @binding(0) var<uniform> ubo: UBO;
 @group(0) @binding(1) var<storage, read_write> pos: array<vec2<f32>>;
@@ -29,7 +32,7 @@ fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
 }
 
 fn gradient(t: f32) -> vec3<f32> {
-    var t1 = t / 7.0;
+    var t1 = t / 10.0;
     t1 = clamp(1.0 - t1, 0.0, 1.0);
     return hsv2rgb(vec3<f32>(t1 * 2.0 / 3.0, 1.0, 1.0));
 }
