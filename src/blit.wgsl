@@ -13,7 +13,7 @@ struct vs_out {
     @location(0) uv: vec2<f32>,
 };
 
-const RADIUS: f32 = 10.0;
+const RADIUS: f32 = 0.5;
 
 @vertex
 fn vs_main(

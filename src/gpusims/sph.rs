@@ -155,6 +155,19 @@ impl Pipeline {
             pass.dispatch_workgroups(self.num_dispatches, 1, 1);
         }
     }
+
+    fn do_pass_inline(&self, pass: &mut wgpu::ComputePass<'_>) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.dispatch_workgroups(self.num_dispatches, 1, 1);
+    }
+    
+    fn do_pass_inline_ubo(&self, pass: &mut wgpu::ComputePass<'_>, ubo_bind: &wgpu::BindGroup, index: u32) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.set_bind_group(1, ubo_bind, &[index * 256]);
+        pass.dispatch_workgroups(self.num_dispatches, 1, 1);
+    }
 }
 
 #[allow(unused)]
@@ -187,6 +200,150 @@ fn readback_buffer(device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::Buffe
         if (i + 1) % 2 == 0 { println!(); }
     }
     println!();
+}
+
+#[allow(unused)]
+pub struct BlockMergeSort {
+    bitonic_local: Pipeline,
+    bitonic_global: Pipeline,
+    ubo: wgpu::Buffer,
+    ubo_bind: wgpu::BindGroup,
+    num_global_steps: u32, 
+    n: u32,
+}
+
+impl BlockMergeSort {
+    fn new(device: &wgpu::Device, arr: &wgpu::Buffer, n: u32) -> Self {
+        let local_block_size: u32 = 2048;
+        let num_local_blocks = n.div_ceil(local_block_size);
+
+        let mut ubo_data: Vec<u32> = Vec::new();
+        let mut num_global_steps: u32 = 0;
+
+        let next_pow2 = n.next_power_of_two();
+        let mut block_size = local_block_size * 2;
+        while block_size <= next_pow2 {
+            let mut stride = block_size / 2;
+            let mut flip = 1u32;
+            while stride > 0 {
+                let mut slot = [0u32; 64];
+                slot[0] = n;
+                slot[1] = stride * 2;
+                slot[2] = flip;
+                ubo_data.extend_from_slice(&slot);
+
+                num_global_steps += 1;
+                stride /= 2;
+                flip = 0;
+            }
+            block_size *= 2;
+        }
+
+        if ubo_data.is_empty() {
+            // in case no global steps needed
+            let mut slot = [0u32; 64];
+            slot[0] = n;
+            ubo_data.extend_from_slice(&slot);
+        }
+
+        let ubo = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("block merge sort ubo"),
+            contents: bytemuck::cast_slice(&ubo_data),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let ubo_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("block merge sort ubo layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                count: None,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(256),
+                },
+                visibility: wgpu::ShaderStages::COMPUTE,
+            }]
+        });
+        let ubo_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("block merge sort ubo bind"),
+            layout: &ubo_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &ubo,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(256),
+                })
+            }]
+        });
+
+        let storage_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("block merge sort storage layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                count: None,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                visibility: wgpu::ShaderStages::COMPUTE,
+            }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("block merge sort pipeline layout"),
+            bind_group_layouts: &[
+                Some(&storage_layout),
+                Some(&ubo_layout),
+            ],
+            immediate_size: 0,
+        });
+
+        let bitonic_local = Pipeline::new_with_shifting_ubo(
+            device,
+            wgpu::include_wgsl!("block_merge/bitonic_local.wgsl"),
+            Some(&pipeline_layout),
+            vec![arr.as_entire_binding()],
+            num_local_blocks,
+            Some("bitonic_local"),
+            None,
+            Some("bitonic local"),
+            None
+        );
+
+        let global_dispatches = (n.next_power_of_two() / 2).div_ceil(256);
+
+        let bitonic_global = Pipeline::new_with_shifting_ubo(
+            device,
+            wgpu::include_wgsl!("block_merge/bitonic_global.wgsl"),
+            Some(&pipeline_layout),
+            vec![arr.as_entire_binding()],
+            global_dispatches,
+            Some("bitonic_global"),
+            None,
+            Some("bitonic global"),
+            None
+        );
+
+        Self { bitonic_local, bitonic_global, ubo, ubo_bind, num_global_steps, n }
+    }
+
+    fn do_sort(&self, scope: &mut wgpu_profiler::Scope<wgpu::CommandEncoder>) {
+        let mut sort_scope = scope.scope("block_merge_sort");
+        let mut pass = sort_scope.begin_compute_pass(&Default::default());
+        self.bitonic_local.do_pass_inline_ubo(&mut pass, &self.ubo_bind, 0);
+        for i in 0..self.num_global_steps {
+            self.bitonic_global.do_pass_inline_ubo(&mut pass, &self.ubo_bind, i);
+        }
+    }
+
+    fn do_sort_inline(&self, mut pass: &mut wgpu::ComputePass<'_>) {
+        self.bitonic_local.do_pass_inline_ubo(&mut pass, &self.ubo_bind, 0);
+        for i in 0..self.num_global_steps {
+            self.bitonic_global.do_pass_inline_ubo(&mut pass, &self.ubo_bind, i);
+        }
+    }
 }
 
 #[allow(unused)]
@@ -488,7 +645,8 @@ pub struct GPUSmoothedParticleHydrodynamicsSim {
     set_acceleration: Pipeline,
     move_and_collide: Pipeline,
 
-    radix_sort: RadixSort,
+    //radix_sort: RadixSort,
+    block_merge_sort: BlockMergeSort,
 
     pub n: usize,
     ubo: UBO,
@@ -663,9 +821,10 @@ impl GPUSmoothedParticleHydrodynamicsSim {
             Some("move_and_collide".to_string())
         );
 
-        let radix_sort = RadixSort::new(device, &hashes1, &hashes2, n as u32);
+        //let radix_sort = RadixSort::new(device, &hashes1, &hashes2, n as u32);
+        let block_merge_sort = BlockMergeSort::new(device, &hashes1, n as u32);
         
-        Self { pbuffers, hashes1, hashes2, cell_range, instance_buffer, uniform_buffer, calc_hash, find_range, set_density, set_normal, set_acceleration, move_and_collide, radix_sort, n, ubo, control_info: Default::default() }
+        Self { pbuffers, hashes1, hashes2, cell_range, instance_buffer, uniform_buffer, calc_hash, find_range, set_density, set_normal, set_acceleration, move_and_collide, block_merge_sort, n, ubo, control_info: Default::default() }
     }
 
     pub fn update(
@@ -684,14 +843,26 @@ impl GPUSmoothedParticleHydrodynamicsSim {
         }
 
         let mut scope = profiler.scope("SPH Compute", encoder);
+        {
+            let mut pass = scope.begin_compute_pass(&Default::default());
+            self.calc_hash.do_pass_inline(&mut pass);
+            //self.radix_sort.do_sort(&mut scope);
+            self.block_merge_sort.do_sort_inline(&mut pass);
+            self.find_range.do_pass_inline(&mut pass);
+            self.set_density.do_pass_inline(&mut pass);
+            self.set_normal.do_pass_inline(&mut pass);
+            self.set_acceleration.do_pass_inline(&mut pass);
+            self.move_and_collide.do_pass_inline(&mut pass);
+        }
 
         //queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.ubo]));
-        self.calc_hash.do_pass(&mut scope);
-        self.radix_sort.do_sort(&mut scope);
-        self.find_range.do_pass(&mut scope);
-        self.set_density.do_pass(&mut scope);
-        self.set_normal.do_pass(&mut scope);
-        self.set_acceleration.do_pass(&mut scope);
-        self.move_and_collide.do_pass(&mut scope);
+        //self.calc_hash.do_pass(&mut scope);
+        //self.radix_sort.do_sort(&mut scope);
+        //self.block_merge_sort.do_sort(&mut scope);
+        //self.find_range.do_pass(&mut scope);
+        //self.set_density.do_pass(&mut scope);
+        //self.set_normal.do_pass(&mut scope);
+        //self.set_acceleration.do_pass(&mut scope);
+        //self.move_and_collide.do_pass(&mut scope);
     }
 }

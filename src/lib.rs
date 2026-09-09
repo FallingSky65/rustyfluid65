@@ -28,7 +28,7 @@ use crate::simulations::{
 const CANVAS_SIZE: [u32; 2] = [1024, 1024];
 const CANVAS_FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-const N: u32 = 4096;
+const N: u32 = 65536;
 const TOTAL_MASS: f32 = 100.0;
 const WORKGROUP_SIZE: u32 = 256;
 const BOX_RADIUS: f32 = 10.0;
