@@ -147,13 +147,20 @@ fn set_acceleration(
         }
     }
 
-    var F_net = vec2<f32>(0.0, -8.0);
-    F_net += F_pressure;
-    F_net += 0.4 * F_viscosity;
-    F_net += 2.0 * F_cohestion;
-    F_net += 1.3 * F_curvature;
+    var F_net = vec2<f32>(0.0, -30.0);
+    F_net += 8.0 * F_pressure;
+    F_net += 0.2 * F_viscosity;
+    F_net += 15.0 * F_cohestion;
+    F_net += 10.0 * F_curvature;
     
     acc[gid] = F_net / density1;
+
+    // clamp acceleration
+    let max_acc = 1500.0;
+    let acc_len = length(acc[gid]);
+    if (acc_len > max_acc) {
+        acc[gid] = (acc[gid] / acc_len) * max_acc;
+    }
 
     let mouse_pos = vec2<f32>(ubo.mouse_x, ubo.mouse_y);
     acc[gid] += select(

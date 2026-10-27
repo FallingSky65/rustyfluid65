@@ -662,7 +662,7 @@ impl GPUSmoothedParticleHydrodynamicsSim {
         let num_dispatches = n.div_ceil(256) as u32;
         
         let mut rng = rand::rng();
-        let distr_x = rand_distr::Uniform::new(-1.0 * box_radius, 0.0 * box_radius).unwrap();
+        let distr_x = rand_distr::Uniform::new(-0.4 * box_radius, 0.4 * box_radius).unwrap();
         let distr_y = rand_distr::Uniform::new(-box_radius, box_radius).unwrap();
         let particles: Vec<Particle> = (0..n)
             .map(|i| Particle {

@@ -32,7 +32,7 @@ fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
 }
 
 fn gradient(t: f32) -> vec3<f32> {
-    var t1 = t / 10.0;
+    var t1 = t / 80.0;
     t1 = clamp(1.0 - t1, 0.0, 1.0);
     return hsv2rgb(vec3<f32>(t1 * 2.0 / 3.0, 1.0, 1.0));
 }

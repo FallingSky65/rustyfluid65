@@ -5,6 +5,7 @@ use std::{sync::Arc, time::Duration};
 
 use wgpu::util::DeviceExt;
 use wgpu_profiler::GpuProfilerSettings;
+use wgpu_text::glyph_brush::ab_glyph::FontRef;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, MouseButton, WindowEvent},
@@ -28,20 +29,20 @@ use crate::simulations::{
 const CANVAS_SIZE: [u32; 2] = [1024, 1024];
 const CANVAS_FMT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-const N: u32 = 65536;
+const N: u32 = 100000;
 const TOTAL_MASS: f32 = 100.0;
 const WORKGROUP_SIZE: u32 = 256;
 const BOX_RADIUS: f32 = 10.0;
 const SIM_UBO: gpusims::sph::UBO = gpusims::sph::UBO {
     nparticles: N,
-    smooth_radius: 0.50,
+    smooth_radius: 0.057,
     //block_size: 0,
     //flip: 0,
-    gas_constant: 20.0,
+    gas_constant: 10.0,
     target_density: 0.7,
     canvas_width: CANVAS_SIZE[0] as f32,
     canvas_height: CANVAS_SIZE[1] as f32,
-    dt: 5e-3,
+    dt: 2.2e-4,
     mouse_x: 0.0,
     mouse_y: 0.0,
     mouse_state: 0,
@@ -136,6 +137,7 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     window: Arc<Window>,
+    brush: wgpu_text::TextBrush<FontRef<'static>>,
 
     render_pipeline: wgpu::RenderPipeline,
     blit_pipeline: wgpu::RenderPipeline,
@@ -222,6 +224,9 @@ impl State {
             desired_maximum_frame_latency: FRAMES_IN_FLIGHT as u32,
         };
         surface.configure(&device, &config);
+
+        let brush = wgpu_text::BrushBuilder::using_font_bytes(include_bytes!("IBMPlexMono-Regular.ttf"))?
+            .build(&device, config.width, config.height, config.format);
 
         let uniform = Uniform {
             canvas_size: [CANVAS_SIZE[0] as f32, CANVAS_SIZE[1] as f32],
@@ -458,6 +463,7 @@ impl State {
             config,
             is_surface_configured: false,
             window,
+            brush,
 
             render_pipeline,
             blit_pipeline,
@@ -493,6 +499,8 @@ impl State {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
+            
+            self.brush.resize_view(width as f32, height as f32, &self.queue);
 
             self.uniform.res[0] = width as f32;
             self.uniform.res[1] = height as f32;
@@ -543,7 +551,7 @@ impl State {
         render_pass.draw(0..4, 0..self.gpusim.get_instances_len() as _);
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, stat_fps: f64, stat_cpu: Duration, stat_gpu: Duration, stat_frame: Duration) {
         self.window.request_redraw();
 
         if !self.is_surface_configured {
@@ -612,6 +620,23 @@ impl State {
                     }
 
                     render_pass.draw(0..4, 0..1);
+
+                    let hud_text = format!(
+                            "rustyfluid65\n{} particles\ndt = {}\nFPS: {:.2}\nCPU: {:.4?}\nGPU: {:.4?}\nFrame: {:.4?}",
+                            N, SIM_UBO.dt, stat_fps, stat_cpu, stat_gpu, stat_frame
+                        );
+                    let section = wgpu_text::glyph_brush::Section::default()
+                        .add_text(
+                            wgpu_text::glyph_brush::Text::new(&hud_text)
+                                .with_scale(48.0)
+                                .with_color([1.0, 1.0, 1.0, 1.0]),
+                        )
+                        .with_screen_position((16.0, 16.0));
+
+                    self.brush.queue(&self.device, &self.queue, [&section]).unwrap();
+
+                    render_pass.set_viewport(0.0, 0.0, self.uniform.res[0], self.uniform.res[1], 0.0, 1.0);
+                    self.brush.draw(&mut render_pass);
                 }
 
                 self.queue.submit(std::iter::once(encoder.finish()));
@@ -641,8 +666,10 @@ impl State {
         // self.sim.sim_update(1.0 / 60.0);
         profiling::scope!("Simulation Update");
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.gpusim
-            .sim_update(&self.queue, &mut encoder, &self.profiler, &self.control_info);
+        let steps = 1;
+        for _ in 0..steps {
+            self.gpusim.sim_update(&self.queue, &mut encoder, &self.profiler, &self.control_info);
+        }
         self.profiler.resolve_queries(&mut encoder);
 
         {
@@ -902,17 +929,19 @@ impl ApplicationHandler<State> for App {
             WindowEvent::RedrawRequested => {
                 let (cpu_time, gpu_time) = state.update();
 
-                state.render();
+                let stat_fps = self.stats.avg_fps();
+                let stat_cpu = self.stats.avg_cpu();
+                let stat_gpu = self.stats.avg_gpu();
+                let stat_frame = self.stats.avg_frame();
+
+                state.render(stat_fps, stat_cpu, stat_gpu, stat_frame);
 
                 self.stats.push(cpu_time, gpu_time);
 
                 if self.stats.index % 32 == 0 {
                     state.window.set_title(&format!(
                         "FPS: {:.2}   CPU: {:.4?}   GPU: {:.4?}   Frame: {:.4?}",
-                        self.stats.avg_fps(),
-                        self.stats.avg_cpu(),
-                        self.stats.avg_gpu(),
-                        self.stats.avg_frame(),
+                        stat_fps, stat_cpu, stat_gpu, stat_frame
                     ));
                 }
             }
